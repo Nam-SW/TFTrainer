@@ -9,12 +9,10 @@ TRAINARGS:
     eval_epoch: 10
     signature:
         x: 
-            shape: 
-                - null
+            shape: (None, 2)
             type: float32
         labels: 
-            shape: 
-                - null
+            shape: (None, 1)
             type: float32
 
     checkpoint_dir: checkpoint

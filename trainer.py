@@ -66,7 +66,7 @@ class TrainArgument:
     def set_signature(self, signature=None):
         return (
             {
-                k: tf.TensorSpec(shape=v["shape"], dtype=v["type"])
+                k: tf.TensorSpec(shape=eval(v["shape"]), dtype=v["type"])
                 for k, v in signature.items()
             }
             if signature is not None
