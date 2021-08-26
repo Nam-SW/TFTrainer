@@ -6,6 +6,7 @@ TRAINARGS:
     train_batch_size: 2
     eval_batch_size: 2
     epochs: 1000
+    eval_epoch: 10
     signature:
         x: 
             shape: 
@@ -21,7 +22,7 @@ TRAINARGS:
     save_total_limit: 10
 
     logging_dir: log
-    logging_steps: 1
+    logging_steps: 10
     logging_print: false
 
     learning_rate: 0.0001
