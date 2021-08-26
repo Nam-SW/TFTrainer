@@ -102,18 +102,14 @@ class Trainer:
         self.set_metrics(metrics)
 
     def set_metrics(self, metrics=None):
-        self.train_loss = tf.keras.metrics.Mean(name="loss")
-        self.eval_loss = tf.keras.metrics.Mean(name="loss")
+        self.loss = tf.keras.metrics.Mean(name="loss")
         self.now_epoch = 0
 
         metrics = [metrics] if hasattr(metrics, "__call__") else metrics
 
         if isinstance(metrics, list) or isinstance(metrics, tuple):
             self.metrics_func = metrics
-            self.train_metrics = [
-                tf.keras.metrics.Mean(name=m.__name__) for m in self.metrics_func
-            ]
-            self.eval_metrics = [
+            self.metrics = [
                 tf.keras.metrics.Mean(name=m.__name__) for m in self.metrics_func
             ]
         else:
@@ -222,17 +218,11 @@ class Trainer:
             )
 
         if self.logging:
-            if training:
-                self.train_loss(loss)
-            else:
-                self.eval_loss(loss)
+            self.loss(loss)
 
             if self.metrics_func is not None:
                 for i, m in enumerate(metrics):
-                    if training:
-                        self.train_metrics[i](m)
-                    else:
-                        self.eval_metrics[i](m)
+                    self.metrics[i](m)
 
     @tf.function
     def distributed_step(self, data, training=False):
@@ -262,9 +252,9 @@ class Trainer:
 
             for epoch in range(self.args.epochs):
                 self.now_epoch = epoch
-                self.train_loss.reset_states()
+                self.loss.reset_states()
                 if self.metrics_func is not None:
-                    for m in self.train_metrics:
+                    for m in self.metrics:
                         m.reset_states()
 
                 for step, data in enumerate(dataset):
@@ -281,14 +271,11 @@ class Trainer:
                             lr = self.lr_scheduler(global_step).numpy()
                             log_dict["lr" + tag] = lr
 
-                        log_dict["loss" + tag] = self.train_loss.result()
+                        log_dict["loss" + tag] = self.loss.result()
 
                         if self.metrics_func is not None:
-                            metrics = self.train_metrics
-                            for m in metrics:
-                                name = m.name
-                                value = m.result()
-                                log_dict[name + tag] = value
+                            for m in self.metrics:
+                                log_dict[m.name + tag] = m.result()
 
                         self.log(log_dict, global_step)
 
@@ -331,24 +318,22 @@ class Trainer:
                 pbar = tqdm(total=step_per_epoch)
             dataset = self.get_dataset(dataset, signature, batch_size=batch_size)
 
-            self.eval_loss.reset_states()
+            self.loss.reset_states()
             if self.metrics_func is not None:
-                for m in self.eval_metrics:
+                for m in self.metrics:
                     m.reset_states()
 
-                for data in dataset:
-                    self.distributed_step(data, training=False)
+            for data in dataset:
+                self.distributed_step(data, training=False)
 
-                    if view_progress:
-                        pbar.update(1)
+                if view_progress:
+                    pbar.update(1)
 
         tag = "/eval"
-        log_dict = {"loss" + tag: self.eval_loss.result()}
+        log_dict = {"loss" + tag: self.loss.result()}
         if self.metrics_func is not None:
-            for m in self.eval_metrics:
-                name = m.name
-                value = m.result()
-                log_dict[name + tag] = value
+            for m in self.metrics:
+                log_dict[m.name + tag] = m.result()
 
         if self.logging:
             self.log(log_dict, self.now_epoch)
