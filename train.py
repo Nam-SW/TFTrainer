@@ -1,5 +1,6 @@
 import os
-import warnings
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import hydra
 
@@ -7,9 +8,6 @@ from dataloader import default_collator, load
 from models.MainModels import BinaryClassificationModel
 from nn import accuracy, loss
 from trainer import TrainArgument, Trainer
-
-warnings.filterwarnings(action="ignore")
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 @hydra.main(config_name="config.yml")
