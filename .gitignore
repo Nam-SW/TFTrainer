@@ -115,6 +115,6 @@ dmypy.json
 
 
 # custom gitignore
-model/*
-checkpoint/*
-log/*
+model/
+checkpoint/
+log/
