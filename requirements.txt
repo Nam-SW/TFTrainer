@@ -1,0 +1,8 @@
+tensorflow-gpu<=2.5.0
+tensorboard
+datasets<=1.5.0
+transformers<=4.5.0
+tokenizers<=0.10.2
+hydra-core
+tqdm
+soynlp
