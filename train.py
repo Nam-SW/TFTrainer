@@ -5,8 +5,8 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import hydra
 
 from dataloader import default_collator, load
+from metrics import accuracy, loss
 from models.MainModels import BinaryClassificationModel
-from nn import accuracy, loss
 from trainer import TrainArgument, Trainer
 
 
