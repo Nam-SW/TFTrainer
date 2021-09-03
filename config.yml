@@ -40,11 +40,11 @@ DATASETS:
 
 # disable hydra logging.
 hydra:
-  run:
-    dir: . 
-  output_subdir: null
-  job_logging: null
-  hydra_logging: null
+    run:
+        dir: . 
+    output_subdir: null
+    job_logging: null
+    hydra_logging: null
 
 # etc feild and user custom feild
 ETC:
