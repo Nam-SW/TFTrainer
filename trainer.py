@@ -217,12 +217,10 @@ class Trainer:
                 zip(gradients, self.model.trainable_variables)
             )
 
-        if self.logging:
-            self.loss(loss)
-
-            if self.metrics_func is not None:
-                for i, m in enumerate(metrics):
-                    self.metrics[i](m)
+        self.loss(loss)
+        if self.metrics_func is not None:
+            for i, m in enumerate(metrics):
+                self.metrics[i](m)
 
     @tf.function
     def distributed_step(self, data, training=False):
