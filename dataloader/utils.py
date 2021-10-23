@@ -1,5 +1,7 @@
 import json
-from typing import Dict, List
+from typing import Callable, Dict, List, Optional, Union
+
+import tensorflow as tf
 
 
 def dump_jsonl(data: List[Dict], output_path: str, append: bool = False) -> None:
@@ -27,5 +29,20 @@ def json_to_jsonl(data: Dict) -> List[Dict]:
     return [{k: data[k][i] for k in keys} for i in range(len(data[keys[0]]))]
 
 
-def default_collator(data):
-    return data
+def convert_tf_datasets(
+    dataset,
+    labels_key: Union[str, List[str]],
+    batch_size: int = 1,
+    collator: Optional[Callable] = None,
+) -> tf.data.Dataset:
+    input_keys = list(set(dataset.keys()) - set(labels_key))
+
+    # TODO: 여기 오래걸림
+    tf_dataset = tf.data.Dataset.from_tensor_slices(
+        (dataset[input_keys], dataset[labels_key])
+    ).batch(batch_size)
+
+    if collator is not None:
+        tf_dataset = tf_dataset.map(collator).prefetch(tf.data.experimental.AUTOTUNE)
+
+    return tf_dataset

@@ -9,8 +9,6 @@ from tqdm import tqdm
 
 from dataloader.utils import dump_jsonl, json_to_jsonl, jsonl_to_json, load_jsonl
 
-__all__ = ["user_define", "utils"]
-
 
 class DataLoader:
     def __init__(
@@ -20,13 +18,15 @@ class DataLoader:
         data_path = [data_path] if isinstance(data_path, str) else data_path
         self.data = sum([load_jsonl(p) for p in data_path], [])
 
-    def __getitem__(self, key: Union[str, int, slice]) -> Any:
+    def __getitem__(self, key: Union[str, int, slice, List[str]]) -> Any:
         if isinstance(key, int):
             return self.data[key]
         elif isinstance(key, slice):
             return jsonl_to_json(self.data[key])
         elif isinstance(key, str):
             return [row[key] for row in self.data]
+        elif isinstance(key, list) and not (False in [isinstance(k, str) for k in key]):
+            return {k: self[k] for k in key}
         else:
             raise KeyError("`key` object must be either str or int.")
 
@@ -34,6 +34,9 @@ class DataLoader:
         return {
             k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in sample.items()
         }
+
+    def keys(self) -> List[str]:
+        return list(self.data[0].keys())
 
     def shuffle(self, seed: Optional[int] = None) -> None:
         if seed is not None:

@@ -1,4 +1,7 @@
+import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# TODO: share_values 변수를 적어주지 않아도 공유해서 쓸 수 있게.
 
 
 def _tokenize(sample, share_values):
@@ -58,3 +61,11 @@ def _grouping(sample, share_values):
         "decoder_input_ids": _padding(decoder_input_ids),
         "labels": _padding(labels),
     }
+
+
+def data_collator(x, y):
+    x["attention_mask"] = tf.cast(tf.not_equal(x["input_ids"], 0), tf.int32)
+    x["decoder_attention_mask"] = tf.cast(
+        tf.not_equal(x["decoder_input_ids"], 0), tf.int32
+    )
+    return (x, y)
