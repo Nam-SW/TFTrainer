@@ -5,7 +5,8 @@ from shutil import rmtree
 import tensorflow as tf
 import transformers as tr
 from tqdm import tqdm
-from transformers.optimization_tf import create_optimizer
+
+from trainer.optimizer import create_optimizer
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 tr.logging.set_verbosity(tr.logging.ERROR)
@@ -168,32 +169,6 @@ class Trainer:
             self.optimizer = optimizer
             self.lr_scheduler = lr_scheduler
 
-    def get_dataset(self, dataset, signature=None, batch_size=None):
-        batch_size = batch_size if batch_size else self.args.train_global_batch_size
-
-        dataset.set_format(type="tensorflow")
-        features = {
-            k: tf.cast(
-                dataset[k].to_tensor(shape=signature[k].shape), dtype=signature[k].dtype
-            )
-            for k in dataset.column_names
-        }
-        dataset_tf = tf.data.Dataset.from_tensor_slices(features)
-
-        options = tf.data.Options()
-        options.experimental_distribute.auto_shard_policy = (
-            tf.data.experimental.AutoShardPolicy.OFF
-        )
-
-        dataset_tf = dataset_tf.batch(batch_size)
-        if self.data_collator is not None:
-            dataset_tf = dataset_tf.map(self.data_collator).prefetch(
-                tf.data.experimental.AUTOTUNE
-            )
-        dataset_tf.with_options(options)
-
-        return self.args.strategy.experimental_distribute_dataset(dataset_tf)
-
     def log(self, log_dict, step):
         self.logger.flush()
         with self.logger.as_default():
@@ -246,7 +221,7 @@ class Trainer:
             step_per_epoch = ceil(len(dataset) / batch_size)
 
             pbar = tqdm(total=step_per_epoch * self.args.epochs)
-            dataset = self.get_dataset(dataset, signature, batch_size=batch_size)
+            dataset = self.args.strategy.experimental_distribute_dataset(dataset)
 
             for epoch in range(self.args.epochs):
                 self.now_epoch = epoch
@@ -314,7 +289,7 @@ class Trainer:
 
             if view_progress:
                 pbar = tqdm(total=step_per_epoch)
-            dataset = self.get_dataset(dataset, signature, batch_size=batch_size)
+            dataset = self.args.strategy.experimental_distribute_dataset(dataset)
 
             self.loss.reset_states()
             if self.metrics_func is not None:
