@@ -7,16 +7,36 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 from tqdm import tqdm
 
-from dataloader.utils import dump_jsonl, json_to_jsonl, jsonl_to_json, load_jsonl
+from dataloader.utils import (
+    check_valid_jsonl,
+    dump_jsonl,
+    json_to_jsonl,
+    jsonl_to_json,
+    load_jsonl,
+)
 
 
 class DataLoader:
     def __init__(
         self,
-        data_path: str,
+        data_path: Optional[str] = None,
+        data: Optional[Union[List[Dict], Dict[str, List]]] = None,
     ) -> None:
-        data_path = [data_path] if isinstance(data_path, str) else data_path
-        self.data = sum([load_jsonl(p) for p in data_path], [])
+        if data_path is None and data is None:
+            raise ValueError("Either data_path or data must be given.")
+        if data_path is not None and data is not None:
+            raise ValueError("Only one of data_path and data must be given.")
+
+        if data_path is not None:
+            data_path = [data_path] if isinstance(data_path, str) else data_path
+            self.data = sum([load_jsonl(p) for p in data_path], [])
+
+        if data is not None:
+            check_valid_jsonl(data)
+            if isinstance(data, dict):
+                data = json_to_jsonl(data)
+
+            self.data = data
 
     def __getitem__(self, key: Union[str, int, slice, List[str]]) -> Any:
         if isinstance(key, int):
@@ -28,7 +48,27 @@ class DataLoader:
         elif isinstance(key, list) and not (False in [isinstance(k, str) for k in key]):
             return {k: self[k] for k in key}
         else:
-            raise KeyError("`key` object must be either str or int.")
+            raise KeyError("`key` argument must be either str or int.")
+
+    def __setitem__(self, key: str, value: List[Any]) -> Any:
+        if not isinstance(key, str):
+            raise KeyError("`key` argument must be str.")
+        if len(value) != len(self.data):
+            raise ValueError(
+                "Length of value ({}) does not match length of index ({})".format(
+                    len(value), len(self.data)
+                )
+            )
+
+        for i in range(len(self.data)):
+            self.data[i][key] = value[i]
+
+    def __delitem__(self, key: str) -> Any:
+        if key not in self.keys():
+            raise KeyError(key)
+
+    def __len__(self):
+        return len(self.data)
 
     def __np_to_list(self, sample: Dict) -> Dict:
         return {
