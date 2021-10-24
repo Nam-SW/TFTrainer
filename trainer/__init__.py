@@ -1,15 +1,16 @@
+import json
 import os
+from datetime import datetime as dt
 from math import ceil
 from shutil import rmtree
 
 import tensorflow as tf
-import transformers as tr
+from pytz import timezone
 from tqdm import tqdm
 
 from trainer.optimizer import create_optimizer
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-tr.logging.set_verbosity(tr.logging.ERROR)
 
 
 class TrainArgument:
@@ -26,7 +27,6 @@ class TrainArgument:
         )
         self.epochs = kwargs.get("epochs", 1)
         self.eval_epoch = kwargs.get("eval_epoch", self.epochs)
-        self.signature = self.set_signature(kwargs.get("signature"))
 
         # checkpoint
         self.checkpoint_dir = kwargs.get("checkpoint_dir")
@@ -35,6 +35,11 @@ class TrainArgument:
 
         # logging
         self.logging_dir = kwargs.get("logging_dir")
+        if self.logging_dir is not None:
+            self.logging_dir = os.path.join(
+                self.logging_dir,
+                dt.now(timezone("Asia/Seoul")).strftime("%Y%m%d%H%M%S"),
+            )
         self.logging_steps = kwargs.get("logging_steps", 100)
         self.logging_print = kwargs.get("logging_print", False)
 
@@ -44,6 +49,7 @@ class TrainArgument:
         self.adam_beta1 = kwargs.get("adam_beta1", 0.9)
         self.adam_beta2 = kwargs.get("adam_beta2", 0.98)
         self.adam_epsilon = kwargs.get("adam_epsilon", 1e-9)
+        self.power = kwargs.get("power", 1.0)
 
     def get_strategy(self, use_gpu):
         gpus = tf.config.list_physical_devices("GPU")
@@ -63,16 +69,6 @@ class TrainArgument:
             strategy = tf.distribute.OneDeviceStrategy(device="/cpu:0")
 
         return strategy
-
-    def set_signature(self, signature=None):
-        return (
-            {
-                k: tf.TensorSpec(shape=eval(v["shape"]), dtype=v["type"])
-                for k, v in signature.items()
-            }
-            if signature is not None
-            else None
-        )
 
 
 class Trainer:
@@ -176,11 +172,11 @@ class Trainer:
                 tf.summary.scalar(name, value, step=step)
 
     @tf.function
-    def step(self, data, training=False):
-        pred = self.model(**data, training=training)
-        loss = self.loss_function(data["labels"], pred)
+    def step(self, x, y, training=False):
+        pred = self.model(**x, training=training)
+        loss = self.loss_function(y, pred)
         if self.metrics_func is not None:
-            metrics = [m(data["labels"], pred) for m in self.metrics_func]
+            metrics = [m(y, pred) for m in self.metrics_func]
 
         if training:
             gradients = tf.gradients(loss, self.model.trainable_variables)
@@ -198,19 +194,11 @@ class Trainer:
                 self.metrics[i](m)
 
     @tf.function
-    def distributed_step(self, data, training=False):
-        self.args.strategy.run(self.step, args=(data, training))
+    def distributed_step(self, x, y, training=False):
+        self.args.strategy.run(self.step, args=(x, y, training))
 
     def train(self, dataset=None, signature=None):
-        if dataset is None:
-            signature = self.args.signature
-            dataset = self.train_dataset
-        else:
-            assert (
-                signature is not None
-            ), "data signature must be required to loop custom datasets."
-
-        batch_size = self.args.train_global_batch_size
+        dataset = self.train_dataset if dataset is None else dataset
 
         self.set_checkpoint(self.args.checkpoint_dir)
         # TODO: checkpoint 넣어주면 로드할 수 있게 하기
@@ -218,7 +206,7 @@ class Trainer:
             if self.optimizer is None:
                 self.set_optimizer(self.optimizer, self.lr_scheduler)
 
-            step_per_epoch = ceil(len(dataset) / batch_size)
+            step_per_epoch = len(dataset)
 
             pbar = tqdm(total=step_per_epoch * self.args.epochs)
             dataset = self.args.strategy.experimental_distribute_dataset(dataset)

@@ -4,7 +4,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import hydra
 
-from dataloader import default_collator, load
+from dataloader import default_collator, load, to_tfdataset
 from metrics import accuracy, loss
 from models.MainModels import BinaryClassificationModel
 from trainer import TrainArgument, Trainer
@@ -13,6 +13,13 @@ from trainer import TrainArgument, Trainer
 @hydra.main(config_name="config.yml")
 def main(cfg):
     train_dataset, eval_dataset = load(**cfg.DATASETS)
+
+    train_dataset = to_tfdataset(train_dataset, cfg.TRAINARGS.signature)
+    eval_dataset = (
+        to_tfdataset(eval_dataset, cfg.TRAINARGS.signature)
+        if eval_dataset is not None
+        else None
+    )
 
     args = TrainArgument(**cfg.TRAINARGS)
 
