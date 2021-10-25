@@ -39,14 +39,12 @@ class DataLoader:
             self.data = data
 
     def __getitem__(self, key: Union[str, int, slice, List[str]]) -> Any:
-        if isinstance(key, int):
+        if isinstance(key, (int, slice)):
             return self.data[key]
-        elif isinstance(key, slice):
-            return jsonl_to_json(self.data[key])
         elif isinstance(key, str):
             return [row[key] for row in self.data]
         elif isinstance(key, list) and not (False in [isinstance(k, str) for k in key]):
-            return {k: self[k] for k in key}
+            return [{k: row[k] for k in key} for row in self.data]
         else:
             raise KeyError("`key` argument must be either str or int.")
 
@@ -84,6 +82,12 @@ class DataLoader:
 
         random.shuffle(self.data)
 
+    def batch(self, batch_size: int):
+        return [
+            jsonl_to_json(self.data[i : i + batch_size])
+            for i in range(0, len(self.data), batch_size)
+        ]
+
     def apply(
         self,
         func: Callable,
@@ -91,14 +95,7 @@ class DataLoader:
         batch_size: Optional[int] = None,
         worker: int = 1,
     ) -> None:
-        data = (
-            self.data
-            if batch_size is None
-            else [
-                jsonl_to_json(self.data[i : i + batch_size])
-                for i in range(0, len(self.data), batch_size)
-            ]
-        )
+        data = self.data if batch_size is None else self.batch(batch_size)
 
         result = []
         if worker == 1:
@@ -126,8 +123,12 @@ class DataLoader:
 
         self.data = result
 
-    def train_test_split(test_size: float = 0.2) -> Tuple[Dict, Dict]:
-        pass
+    def train_test_split(self, test_size: float = 0.2) -> Tuple[Dict, Dict]:
+        idx = int(len(self.data) * test_size)
+        train_data = DataLoader(data=self.data[:-idx])
+        eval_data = DataLoader(data=self.data[-idx:])
+
+        return train_data, eval_data
 
     def save(self, path: str) -> None:
         dump_jsonl(self.data, path)
@@ -151,6 +152,9 @@ def load(
         data.shuffle(seed=shuffle_seed)
 
     if train_test_split is not None:
-        pass
+        train_data, eval_data = data.train_test_split(train_test_split)
+    else:
+        train_data = data
+        eval_data = None
 
-    return data
+    return train_data, eval_data
