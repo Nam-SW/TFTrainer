@@ -100,9 +100,16 @@ class Trainer:
 
     def set_metrics(self, metrics=None):
         self.loss = tf.keras.metrics.Mean(name="loss")
-        self.now_epoch = 0
+        self.global_step = 0
+        self.ckpt_step = 0
+        self.lr = 0.0
+        self.epoch = 0
 
+        metrics = [] if metrics is None else metrics
         metrics = [metrics] if hasattr(metrics, "__call__") else metrics
+        for i in range(len(metrics)):
+            if not hasattr(metrics[i], "__name__"):
+                metrics[i].__name__ = metrics[i].__class__.__name__
 
         if isinstance(metrics, list) or isinstance(metrics, tuple):
             self.metrics_func = metrics
@@ -114,7 +121,9 @@ class Trainer:
             self.train_metrics = None
             self.eval_metrics = None
 
-    def set_checkpoint(self, checkpoint_dir=None):
+    # TODO: model save, load 통일
+
+    def set_checkpoint(self, checkpoint_dir=None, step_per_epoch=None):
         if checkpoint_dir is None:
             self.checkpoint = False
             return
@@ -123,10 +132,29 @@ class Trainer:
         if not os.path.isdir(checkpoint_dir):
             os.mkdir(checkpoint_dir)
 
-    def save_checkpoint(self, epoch):
+        if step_per_epoch is not None and os.listdir(checkpoint_dir):
+            last_ckpt = sorted(os.listdir(checkpoint_dir))[-1]
+            with open(
+                os.path.join(checkpoint_dir, last_ckpt, "ckpt_info.json"),
+                "r",
+                encoding="utf-8",
+            ) as f:
+                info = json.load(f)
+                self.global_step = info["step"]
+                self.ckpt_step = info["step"]
+                self.lr = info["lr"]
+                self.epoch = info["epoch"]
+
+            with self.args.strategy.scope():
+                self.model = self.model.load(os.path.join(checkpoint_dir, last_ckpt))
+                print("load checkpoint at " + last_ckpt)
+
+    def save_checkpoint(self):
         assert self.checkpoint
+        epoch_str = str(self.epoch + 1).zfill(len(str(self.args.epochs)))
+
         ckpt_list = os.listdir(self.args.checkpoint_dir)
-        save_dir = os.path.join(self.args.checkpoint_dir, f"epoch_{epoch}")
+        save_dir = os.path.join(self.args.checkpoint_dir, "epoch_" + epoch_str)
         if self.args.logging_print:
             print("saved at " + save_dir)
 
@@ -135,6 +163,15 @@ class Trainer:
             rmtree(first_one)
 
         self.model.save(save_dir)
+        with open(os.path.join(save_dir, "ckpt_info.json"), "w", encoding="utf-8") as f:
+            info = {
+                "step": self.global_step,
+                "lr": float(
+                    self.lr_scheduler(self.global_step - self.ckpt_step).numpy()
+                ),
+                "epoch": self.epoch + 1,
+            }
+            json.dump(info, f)
 
     def set_tensorboard(self, logging_dir=None):
         if logging_dir is None:
@@ -153,17 +190,27 @@ class Trainer:
 
         if optimizer is None:
             self.optimizer, self.lr_scheduler = create_optimizer(
-                self.args.learning_rate,
-                num_training_steps,
-                self.args.warmup_steps,
+                self.lr if self.lr > 0.0 else self.args.learning_rate,
+                num_training_steps - self.global_step,
+                max(0, self.args.warmup_steps - self.global_step),
                 adam_beta1=self.args.adam_beta1,
                 adam_beta2=self.args.adam_beta2,
                 adam_epsilon=self.args.adam_epsilon,
+                power=self.args.power,
             )
 
         else:
             self.optimizer = optimizer
             self.lr_scheduler = lr_scheduler
+
+    def get_dataset(self, dataset, batch_size):
+        dataset = dataset.batch(batch_size)
+        if self.data_collator is not None:
+            dataset = dataset.map(self.data_collator).prefetch(
+                tf.data.experimental.AUTOTUNE
+            )
+
+        return self.args.strategy.experimental_distribute_dataset(dataset)
 
     def log(self, log_dict, step):
         self.logger.flush()
@@ -197,19 +244,21 @@ class Trainer:
     def distributed_step(self, x, y, training=False):
         self.args.strategy.run(self.step, args=(x, y, training))
 
-    def train(self, dataset=None, signature=None):
-        dataset = self.train_dataset if dataset is None else dataset
+    def train(self, dataset=None):
+        dataset = self.get_dataset(
+            self.train_dataset if dataset is None else dataset,
+            batch_size=self.args.train_global_batch_size,
+        )
+        step_per_epoch = len(dataset)
 
         self.set_checkpoint(self.args.checkpoint_dir)
-        # TODO: checkpoint 넣어주면 로드할 수 있게 하기
+
+        pbar = tqdm(total=step_per_epoch * self.args.epochs)
+        pbar.update(self.global_step)
+
         with self.args.strategy.scope():
             if self.optimizer is None:
                 self.set_optimizer(self.optimizer, self.lr_scheduler)
-
-            step_per_epoch = len(dataset)
-
-            pbar = tqdm(total=step_per_epoch * self.args.epochs)
-            dataset = self.args.strategy.experimental_distribute_dataset(dataset)
 
             for epoch in range(self.args.epochs):
                 self.now_epoch = epoch
@@ -218,10 +267,10 @@ class Trainer:
                     for m in self.metrics:
                         m.reset_states()
 
-                for step, data in enumerate(dataset):
+                for step, (x, y) in enumerate(dataset):
                     global_step = step_per_epoch * epoch + step
 
-                    self.distributed_step(data, training=True)
+                    self.distributed_step(x, y, training=True)
 
                     if self.logging and global_step % self.args.logging_steps == 0:
                         log_dict = dict()
@@ -241,62 +290,51 @@ class Trainer:
                         self.log(log_dict, global_step)
 
                         if self.args.logging_print:
-                            print(
-                                "train step {}: {}".format(
-                                    global_step,
-                                    ", ".join(
-                                        [f"{k}: {v: .4f}" for k, v in log_dict.items()]
-                                    ),
-                                )
+                            str_log_dict = "train step {}: {}".format(
+                                global_step,
+                                ", ".join(
+                                    [f"{k}: {v: .4f}" for k, v in log_dict.items()]
+                                ),
                             )
+                            print(str_log_dict)
 
                     pbar.update(1)
 
                 if self.checkpoint and (epoch + 1) % self.args.save_epoch == 0:
-                    str_len = len(str(self.args.epochs))
-                    epoch_str = str(epoch)
-                    epoch_str = "0" * (str_len - len(epoch_str)) + epoch_str
-                    self.save_checkpoint(epoch_str)
+                    self.save_checkpoint()
 
-                if self.do_eval and self.now_epoch % self.args.eval_epoch == 0:
+                if self.do_eval and (epoch + 1) % self.args.eval_epoch == 0:
                     self.eval(view_progress=False)
 
-    def eval(self, dataset=None, signature=None, view_progress=True):
-        if dataset is None:
-            assert self.eval_dataset is not None, "eval dataset is not exist."
-            dataset = self.eval_dataset
-            signature = self.args.signature
-        else:
-            assert (
-                signature is not None
-            ), "data signature must be required to loop custom datasets."
-        batch_size = self.args.eval_global_batch_size
+    def eval(self, dataset=None, view_progress=True):
+        dataset = self.get_dataset(
+            self.eval_dataset if dataset is None else dataset,
+            batch_size=self.args.eval_global_batch_size,
+        )
+        step_per_epoch = len(dataset)
+
+        if view_progress:
+            pbar = tqdm(total=step_per_epoch)
 
         with self.args.strategy.scope():
-            step_per_epoch = ceil(len(dataset) / batch_size)
-
-            if view_progress:
-                pbar = tqdm(total=step_per_epoch)
-            dataset = self.args.strategy.experimental_distribute_dataset(dataset)
-
             self.loss.reset_states()
             if self.metrics_func is not None:
                 for m in self.metrics:
                     m.reset_states()
 
-            for data in dataset:
-                self.distributed_step(data, training=False)
+            for (x, y) in dataset:
+                self.distributed_step(x, y, training=False)
 
                 if view_progress:
                     pbar.update(1)
 
-        tag = "/eval"
-        log_dict = {"loss" + tag: self.loss.result()}
+        tag = "eval/"
+        log_dict = {tag + "loss": self.loss.result()}
         if self.metrics_func is not None:
             for m in self.metrics:
-                log_dict[m.name + tag] = m.result()
+                log_dict[tag + m.name] = m.result()
 
         if self.logging:
-            self.log(log_dict, self.now_epoch)
+            self.log(log_dict, self.epoch)
 
         return log_dict
