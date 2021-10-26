@@ -2,8 +2,6 @@ import json
 import os
 
 import tensorflow as tf
-import transformers
-from transformers import PretrainedConfig, TFAutoModel
 
 from models.TransformerLayers import DecoderLayer, EncoderLayer
 from models.UtilLayers import PositionalEmbedding
@@ -49,20 +47,6 @@ class Transformer(tf.keras.Model):
 
         self.output_layer = tf.keras.layers.Dense(vocab_size, activation="linear")
 
-    def loss(self, y, pred):
-        pred = tf.nn.softmax(pred)
-        idx_except_last = tf.meshgrid(
-            *[tf.range(s) for s in pred.shape[:-1]], indexing="ij"
-        )
-        idx = tf.stack(idx_except_last + [y], axis=-1)
-        pred_ = tf.gather_nd(pred, idx)
-
-        loss = tf.math.log(pred_)
-        mask = tf.cast(tf.math.not_equal(y, 0), dtype=loss.dtype)
-
-        loss = -tf.reduce_sum(loss * mask, axis=-1)
-        return tf.reduce_sum(loss) / tf.reduce_sum(mask)
-
     def dot_attention(self, q, k, v, mask=None):
         logits = tf.matmul(q, k, transpose_b=True)
 
@@ -93,7 +77,6 @@ class Transformer(tf.keras.Model):
         attention_mask=None,
         decoder_attention_mask=None,
         training=False,
-        labels=None,
         **kwargs,
     ):
         # check error
@@ -164,10 +147,7 @@ class Transformer(tf.keras.Model):
 
         output = self.output_layer(decoder_output)
 
-        if labels is not None:
-            return (output, self.loss(labels, output))
-        else:
-            return (output,)
+        return output
 
     def get_config(self):
         return {
