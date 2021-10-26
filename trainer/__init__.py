@@ -27,11 +27,15 @@ class TrainArgument:
         )
         self.epochs = kwargs.get("epochs", 1)
         self.eval_epoch = kwargs.get("eval_epoch", self.epochs)
+        self.eval_epoch = self.epochs if self.eval_epoch == -1 else self.eval_epoch
 
         # checkpoint
         self.checkpoint_dir = kwargs.get("checkpoint_dir")
         self.save_epoch = kwargs.get("save_epoch", 1)
         self.save_total_limit = kwargs.get("save_total_limit", int(1e9))
+        if self.checkpoint_dir is None:
+            self.checkpoint_dir = "./ckpt"
+            self.save_total_limit = 1
 
         # logging
         self.logging_dir = kwargs.get("logging_dir")
@@ -123,55 +127,21 @@ class Trainer:
 
     # TODO: model save, load 통일
 
-    def set_checkpoint(self, checkpoint_dir=None, step_per_epoch=None):
-        if checkpoint_dir is None:
-            self.checkpoint = False
-            return
+    def set_checkpoint(self):
+        self.ckpt = tf.train.Checkpoint(
+            step=tf.Variable(1), optimizer=self.optimizer, net=self.model
+        )
+        self.ckpt_manager = tf.train.CheckpointManager(
+            self.ckpt, self.args.checkpoint_dir, max_to_keep=self.args.save_total_limit
+        )
 
-        self.checkpoint = True
-        if not os.path.isdir(checkpoint_dir):
-            os.mkdir(checkpoint_dir)
-
-        if step_per_epoch is not None and os.listdir(checkpoint_dir):
-            last_ckpt = sorted(os.listdir(checkpoint_dir))[-1]
-            with open(
-                os.path.join(checkpoint_dir, last_ckpt, "ckpt_info.json"),
-                "r",
-                encoding="utf-8",
-            ) as f:
-                info = json.load(f)
-                self.global_step = info["step"]
-                self.ckpt_step = info["step"]
-                self.lr = info["lr"]
-                self.epoch = info["epoch"]
-
-            with self.args.strategy.scope():
-                self.model = self.model.load(os.path.join(checkpoint_dir, last_ckpt))
-                print("load checkpoint at " + last_ckpt)
+        self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
+        if self.ckpt_manager.latest_checkpoint:
+            print("load checkpoint from " + self.ckpt_manager.latest_checkpoint)
 
     def save_checkpoint(self):
-        assert self.checkpoint
-        epoch_str = str(self.epoch + 1).zfill(len(str(self.args.epochs)))
-
-        ckpt_list = os.listdir(self.args.checkpoint_dir)
-        save_dir = os.path.join(self.args.checkpoint_dir, "epoch_" + epoch_str)
-        if self.args.logging_print:
-            print("saved at " + save_dir)
-
-        if self.args.save_total_limit <= len(ckpt_list):
-            first_one = os.path.join(self.args.checkpoint_dir, sorted(ckpt_list)[0])
-            rmtree(first_one)
-
-        self.model.save(save_dir)
-        with open(os.path.join(save_dir, "ckpt_info.json"), "w", encoding="utf-8") as f:
-            info = {
-                "step": self.global_step,
-                "lr": float(
-                    self.lr_scheduler(self.global_step - self.ckpt_step).numpy()
-                ),
-                "epoch": self.epoch + 1,
-            }
-            json.dump(info, f)
+        save_path = self.ckpt_manager.save()
+        return save_path
 
     def set_tensorboard(self, logging_dir=None):
         if logging_dir is None:
@@ -182,23 +152,17 @@ class Trainer:
 
         self.logger = tf.summary.create_file_writer(logging_dir)
 
-    def set_optimizer(self, optimizer=None, lr_scheduler=None):
-        num_training_steps = (
-            ceil(len(self.train_dataset) / self.args.train_global_batch_size)
-            * self.args.epochs
-        )
-
+    def set_optimizer(self, num_training_steps, optimizer=None, lr_scheduler=None):
         if optimizer is None:
             self.optimizer, self.lr_scheduler = create_optimizer(
-                self.lr if self.lr > 0.0 else self.args.learning_rate,
-                num_training_steps - self.global_step,
-                max(0, self.args.warmup_steps - self.global_step),
+                self.args.learning_rate,
+                num_training_steps,
+                self.args.warmup_steps,
                 adam_beta1=self.args.adam_beta1,
                 adam_beta2=self.args.adam_beta2,
                 adam_epsilon=self.args.adam_epsilon,
                 power=self.args.power,
             )
-
         else:
             self.optimizer = optimizer
             self.lr_scheduler = lr_scheduler
@@ -253,35 +217,41 @@ class Trainer:
             self.train_dataset if dataset is None else dataset,
             batch_size=self.args.train_global_batch_size,
         )
-
-        self.set_checkpoint(self.args.checkpoint_dir)
-
-        pbar = tqdm(total=step_per_epoch * self.args.epochs)
-        pbar.update(self.global_step)
+        num_training_step = step_per_epoch * self.args.epochs
 
         with self.args.strategy.scope():
             if self.optimizer is None:
-                self.set_optimizer(self.optimizer, self.lr_scheduler)
+                self.set_optimizer(num_training_step, self.optimizer, self.lr_scheduler)
 
-            for epoch in range(self.args.epochs):
-                self.now_epoch = epoch
+            self.set_checkpoint()
+
+            pbar = tqdm(total=num_training_step)
+            pbar.update(self.ckpt.step.numpy())
+
+            for epoch in range(
+                self.ckpt.step.numpy() // step_per_epoch, self.args.epochs
+            ):
                 self.loss.reset_states()
                 if self.metrics_func is not None:
                     for m in self.metrics:
                         m.reset_states()
 
                 for step, (x, y) in enumerate(dataset):
-                    global_step = step_per_epoch * epoch + step
 
                     self.distributed_step(x, y, training=True)
 
-                    if self.logging and global_step % self.args.logging_steps == 0:
+                    if (
+                        self.logging
+                        and self.ckpt.step.numpy() % self.args.logging_steps == 0
+                    ):
                         log_dict = dict()
                         tag = "/train"
 
-                        log_dict["epoch" + tag] = global_step / step_per_epoch
+                        log_dict["epoch" + tag] = (
+                            self.ckpt.step.numpy() / step_per_epoch
+                        )
                         if self.lr_scheduler is not None:
-                            lr = self.lr_scheduler(global_step).numpy()
+                            lr = self.lr_scheduler(self.ckpt.step).numpy()
                             log_dict["lr" + tag] = lr
 
                         log_dict["loss" + tag] = self.loss.result()
@@ -290,23 +260,24 @@ class Trainer:
                             for m in self.metrics:
                                 log_dict[m.name + tag] = m.result()
 
-                        self.log(log_dict, global_step)
+                        self.log(log_dict, self.ckpt.step.numpy())
 
                         if self.args.logging_print:
                             str_log_dict = "train step {}: {}".format(
-                                global_step,
+                                self.ckpt.step.numpy(),
                                 ", ".join(
                                     [f"{k}: {v: .4f}" for k, v in log_dict.items()]
                                 ),
                             )
                             print(str_log_dict)
 
+                    self.ckpt.step.assign_add(1)
                     pbar.update(1)
 
-                if self.checkpoint and (epoch + 1) % self.args.save_epoch == 0:
+                if epoch % self.args.save_epoch == 0:
                     self.save_checkpoint()
 
-                if self.do_eval and (epoch + 1) % self.args.eval_epoch == 0:
+                if self.do_eval and epoch % self.args.eval_epoch == 0:
                     self.eval(view_progress=False)
 
     def eval(self, dataset=None, view_progress=True):
@@ -337,6 +308,6 @@ class Trainer:
                 log_dict[tag + m.name] = m.result()
 
         if self.logging:
-            self.log(log_dict, self.epoch)
+            self.log(log_dict, self.ckpt.step.numpy())
 
         return log_dict
