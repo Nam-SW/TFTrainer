@@ -210,7 +210,7 @@ class Trainer:
                 tf.data.experimental.AUTOTUNE
             )
 
-        return self.args.strategy.experimental_distribute_dataset(dataset)
+        return self.args.strategy.experimental_distribute_dataset(dataset), len(dataset)
 
     def log(self, log_dict, step):
         self.logger.flush()
@@ -245,11 +245,10 @@ class Trainer:
         self.args.strategy.run(self.step, args=(x, y, training))
 
     def train(self, dataset=None):
-        dataset = self.get_dataset(
+        dataset, step_per_epoch = self.get_dataset(
             self.train_dataset if dataset is None else dataset,
             batch_size=self.args.train_global_batch_size,
         )
-        step_per_epoch = len(dataset)
 
         self.set_checkpoint(self.args.checkpoint_dir)
 
@@ -307,11 +306,10 @@ class Trainer:
                     self.eval(view_progress=False)
 
     def eval(self, dataset=None, view_progress=True):
-        dataset = self.get_dataset(
+        dataset, step_per_epoch = self.get_dataset(
             self.eval_dataset if dataset is None else dataset,
             batch_size=self.args.eval_global_batch_size,
         )
-        step_per_epoch = len(dataset)
 
         if view_progress:
             pbar = tqdm(total=step_per_epoch)
