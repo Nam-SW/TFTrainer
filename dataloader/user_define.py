@@ -69,3 +69,6 @@ def data_collator(x, y):
         tf.not_equal(x["decoder_input_ids"], 0), tf.int32
     )
     return (x, y)
+
+
+aplly_list = [_tokenize, _grouping]

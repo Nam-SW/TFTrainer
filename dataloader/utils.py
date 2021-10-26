@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Tuple, Union
 
 import tensorflow as tf
 

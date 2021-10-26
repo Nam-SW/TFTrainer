@@ -2,13 +2,14 @@ import random
 from functools import partial
 from multiprocessing import Pool
 from os.path import abspath
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from tqdm import tqdm
 
 from dataloader.utils import (
     check_valid_jsonl,
+    convert_tf_datasets,
     dump_jsonl,
     json_to_jsonl,
     jsonl_to_json,
@@ -92,17 +93,17 @@ class DataLoader:
         self,
         func: Callable,
         share_values: Optional[Dict[str, Any]] = None,
-        batch_size: Optional[int] = None,
+        batch_size: int = 1,
         worker: int = 1,
     ) -> None:
-        data = self.data if batch_size is None else self.batch(batch_size)
+        data = self.data if batch_size == 1 else self.batch(batch_size)
 
         result = []
         if worker == 1:
             for batch in tqdm(data):
                 r = self.__np_to_list(func(*batch))
 
-                if batch_size is None:
+                if batch_size == 1:
                     result.append(r)
                 else:
                     result += json_to_jsonl(r)
@@ -136,11 +137,16 @@ class DataLoader:
 
 def load(
     data_path: str,
+    input_key: Union[List[str], str],
+    labels_key: Union[List[str], str],
     share_values: Optional[Dict[str, Any]] = None,
     map_args: Optional[List[Dict[str, Any]]] = None,
     shuffle_seed: Optional[int] = None,
     train_test_split: Optional[float] = None,
+    dtype: Literal["dict", "tuple"] = "dict",
 ):
+    input_key = input_key if isinstance(input_key, str) else list(input_key)
+    labels_key = labels_key if isinstance(labels_key, str) else list(labels_key)
 
     data = DataLoader(abspath(data_path))
 
@@ -156,5 +162,22 @@ def load(
     else:
         train_data = data
         eval_data = None
+
+    train_data = convert_tf_datasets(
+        train_data,
+        input_key=input_key,
+        labels_key=labels_key,
+        dtype=dtype,
+    )
+    eval_data = (
+        convert_tf_datasets(
+            eval_data,
+            input_key=input_key,
+            labels_key=labels_key,
+            dtype=dtype,
+        )
+        if eval_data is not None
+        else None
+    )
 
     return train_data, eval_data
