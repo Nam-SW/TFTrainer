@@ -220,7 +220,11 @@ class Trainer:
 
     @tf.function
     def step(self, x, y, training=False):
-        pred = self.model(**x, training=training)
+        if isinstance(x, dict):
+            pred = self.model(**x, training=training)
+        elif isinstance(x, tuple):
+            pred = self.model(x, training=training)
+
         loss = self.loss_function(y, pred)
         if self.metrics_func is not None:
             metrics = [m(y, pred) for m in self.metrics_func]
