@@ -1,0 +1,61 @@
+# model initial argument
+MODEL:
+    field: 123
+
+# training args
+TRAINARGS:
+    use_gpu: true
+
+    # hyper parameters
+    train_batch_size: 32
+    eval_batch_size: 32
+    epochs: 10
+    eval_epoch: -1
+
+    # checkpoint
+    checkpoint_dir: ckpt
+    save_epoch: 2
+    save_total_limit: 10
+
+    # tensorboard
+    logging_dir: logs
+    logging_steps: 10
+    logging_print: false
+
+    # optimizer parameters
+    learning_rate: 0.0001
+    warmup_steps: 0
+    adam_beta1: 0.9
+    adam_beta2: 0.98
+    adam_epsilon: 0.000000001
+    power: 1.0
+
+# datasets feild. Set the parameters for your custom dataset.
+DATASETS:
+    data_path: dataset.json  # dataset path. dataset must jsonl type.
+    share_dict:  # Resources shared by multiple processes.
+        resource1: 123
+    map_args_list:  # Parameters required for the functions to be applied.
+        -
+            batch_size: 2000  # A unit that groups data into batches. Write 1 if processing one by one.
+            worker: 8  # Number of processes to use for multiprocessing.
+    train_test_split: 0.1  # size of test datasets. If you don't want to proceed with evaluation, enter null.
+    shuffle_seed: 42  # Seed to shuffle the data. If you don't want to proceed with shuffle, enter null.
+    input_key:  # keys of input dataset. List[str] or str.
+        - input_ids
+        - decoder_input_ids
+    labels_key: labels  # keys of target dataset. List[str] or str.
+    dtype: dict  # Literal['dict', 'tuple']. batch data type.
+
+# disable hydra logging.
+hydra:
+    run:
+        dir: . 
+    output_subdir: null
+    job_logging: null
+    hydra_logging: null
+
+# etc feild and user custom feild
+ETC:
+    output_dir: /home/nsw0311/nas_storage/models/test
+    tokenizer_path: /home/nsw0311/nas_storage/etc/RG_tokenizer
