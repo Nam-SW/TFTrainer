@@ -104,10 +104,6 @@ class Trainer:
 
     def set_metrics(self, metrics=None):
         self.loss = tf.keras.metrics.Mean(name="loss")
-        self.global_step = 0
-        self.ckpt_step = 0
-        self.lr = 0.0
-        self.epoch = 0
 
         metrics = [] if metrics is None else metrics
         metrics = [metrics] if hasattr(metrics, "__call__") else metrics
@@ -122,8 +118,7 @@ class Trainer:
             ]
         else:
             self.metrics_func = None
-            self.train_metrics = None
-            self.eval_metrics = None
+            self.metrics = None
 
     def set_checkpoint(self):
         self.ckpt = tf.train.Checkpoint(
@@ -142,13 +137,9 @@ class Trainer:
         return save_path
 
     def set_tensorboard(self, logging_dir=None):
-        if logging_dir is None:
-            self.logging = False
-            return
-
-        self.logging = True
-
-        self.logger = tf.summary.create_file_writer(logging_dir)
+        self.logging = logging_dir is not None
+        if self.logging:
+            self.logger = tf.summary.create_file_writer(logging_dir)
 
     def set_optimizer(self, num_training_steps, optimizer=None, lr_scheduler=None):
         if optimizer is None:
