@@ -57,5 +57,4 @@ hydra:
 
 # etc feild and user custom feild
 ETC:
-    output_dir: /home/nsw0311/nas_storage/models/test
-    tokenizer_path: /home/nsw0311/nas_storage/etc/RG_tokenizer
+    output_dir: model_save_path
