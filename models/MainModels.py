@@ -16,7 +16,6 @@ class Transformer(tf.keras.Model):
         num_encoder_layers: int,
         num_decoder_layers: int,
         vocab_size: int,
-        code_m: int,
         pe: int = 1000,
         rate: float = 0.1,
     ):
@@ -28,7 +27,6 @@ class Transformer(tf.keras.Model):
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
         self.vocab_size = vocab_size
-        self.code_m = code_m
         self.pe = pe
         self.rate = rate
 
@@ -39,24 +37,12 @@ class Transformer(tf.keras.Model):
             EncoderLayer(hidden_size, num_heads, rate)
             for _ in range(num_encoder_layers)
         ]
-        self.code_embedding = tf.keras.layers.Embedding(self.code_m, self.hidden_size)
         self.decoders = [
             DecoderLayer(hidden_size, num_heads, rate)
             for _ in range(num_decoder_layers)
         ]
 
         self.output_layer = tf.keras.layers.Dense(vocab_size, activation="linear")
-
-    def dot_attention(self, q, k, v, mask=None):
-        logits = tf.matmul(q, k, transpose_b=True)
-
-        if mask is not None:
-            logits += tf.cast((1 - mask[:, tf.newaxis, :]), tf.float32) * -1e9
-
-        attention_weights = tf.nn.softmax(logits, axis=-1)
-        output = tf.matmul(attention_weights, v)
-
-        return output
 
     def create_look_ahead_mask(self, padding_mask):
         size = tf.shape(padding_mask)[-1]
@@ -89,38 +75,14 @@ class Transformer(tf.keras.Model):
 
         # encoder
         if input_ids is not None:
-            window = input_ids.shape[1]
-            encoder_embeds = []
-            for i in range(window):
-                ids = input_ids[:, i, :]
-                mask = attention_mask[:, i, :] if attention_mask is not None else None
+            encoder_output = self.embedding(input_ids)
+            if self.embedding_size != self.hidden_size:
+                encoder_output = self.embedding_intermediate(encoder_output)
 
-                output = self.embedding(ids)
-                if self.embedding_size != self.hidden_size:
-                    output = self.embedding_intermediate(output)
-
-                for i in range(self.num_encoder_layers):
-                    output = self.encoders[i](output, mask, training=training)
-
-                encoder_embeds.append(output)
-
-            encoder_embeds = tf.concat(encoder_embeds, axis=1)
-            attention_mask = (
-                tf.reshape(attention_mask, encoder_embeds.shape[:2])
-                if attention_mask is not None
-                else None
-            )
-
-            codes = tf.range(self.code_m, dtype=tf.int32)
-            code_embeds = self.code_embedding(codes)
-
-            encoder_output = self.dot_attention(
-                code_embeds,
-                encoder_embeds,
-                encoder_embeds,
-                mask=attention_mask,
-            )
-            attention_mask = tf.ones(encoder_output.shape[:-1])
+            for i in range(self.num_encoder_layers):
+                encoder_output = self.encoders[i](
+                    encoder_output, attention_mask, training=training
+                )
 
         elif encoder_embed is not None:
             encoder_output = encoder_embed
@@ -157,18 +119,15 @@ class Transformer(tf.keras.Model):
             "num_encoder_layers": self.num_encoder_layers,
             "num_decoder_layers": self.num_decoder_layers,
             "vocab_size": self.vocab_size,
-            "code_m": self.code_m,
             "pe": self.pe,
             "rate": self.rate,
         }
 
     def _get_sample_data(self):
         sample_data = {
-            "input_ids": tf.random.uniform(
-                (1, 1, 8), 0, self.vocab_size, dtype=tf.int64
-            ),
+            "input_ids": tf.random.uniform((1, 8), 0, self.vocab_size, dtype=tf.int32),
             "decoder_input_ids": tf.random.uniform(
-                (1, 1), 0, self.vocab_size, dtype=tf.int64
+                (1, 1), 0, self.vocab_size, dtype=tf.int32
             ),
         }
         return sample_data

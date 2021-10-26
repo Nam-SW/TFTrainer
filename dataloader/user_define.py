@@ -5,62 +5,33 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 def _tokenize(sample, share_values):
-    sample["tokenized"] = share_values.get("tokenizer")(sample["content"])["input_ids"]
-    return sample
+    data = dict()
 
-
-def _grouping(sample, share_values):
-    def _padding(data):
+    def _padding(l):
         return pad_sequences(
-            data,
+            l,
             share_values.get("seq_len"),
             padding="post",
             truncating="post",
         )
 
-    bos = [share_values.get("tokenizer").bos_token_id]
-    eos = [share_values.get("tokenizer").eos_token_id]
+    # emcode
+    data["input_ids"] = [
+        [share_values.get("tokenizer")[c] for c in q] for q in sample["Q"]
+    ]
+    data["decoder_input_ids"] = [
+        [1] + [share_values.get("tokenizer")[c] for c in q] for q in sample["Q"]
+    ]
+    data["labels"] = [
+        [share_values.get("tokenizer")[c] for c in q] + [2] for q in sample["Q"]
+    ]
 
-    input_ids = []
-    decoder_input_ids = []
-    labels = []
+    # padding
+    data["input_ids"] = _padding(data["input_ids"])
+    data["decoder_input_ids"] = _padding(data["decoder_input_ids"])
+    data["labels"] = _padding(data["labels"])
 
-    contents = [[] for _ in range(share_values.get("window") - 1)] + sample["tokenized"]
-    talk_ids = [
-        sample["talk_id"][0] for _ in range(share_values.get("window") - 1)
-    ] + sample["talk_id"]
-
-    s, e = 0, share_values.get("window")
-    now_talk_id = talk_ids[0]
-
-    while len(contents) > e:
-        talk_id = talk_ids[e]
-
-        if now_talk_id != talk_id:
-            contents = [[] for _ in range(share_values.get("window") - 1)] + contents[
-                s + share_values.get("window") :
-            ]
-            talk_ids = [
-                talk_id for _ in range(share_values.get("window") - 1)
-            ] + talk_ids[s + share_values.get("window") :]
-            s, e = 0, share_values.get("window")
-            now_talk_id = talk_id
-            continue
-
-        input_ids += contents[s:e]
-        decoder_input_ids.append(bos + contents[e])
-        labels.append(contents[e] + eos)
-
-        s += 1
-        e += 1
-
-    return {
-        "input_ids": _padding(input_ids).reshape(
-            (-1, share_values.get("window"), share_values.get("seq_len")),
-        ),
-        "decoder_input_ids": _padding(decoder_input_ids),
-        "labels": _padding(labels),
-    }
+    return data
 
 
 def data_collator(x, y):
@@ -71,4 +42,4 @@ def data_collator(x, y):
     return (x, y)
 
 
-aplly_list = [_tokenize, _grouping]
+aplly_list = [_tokenize]

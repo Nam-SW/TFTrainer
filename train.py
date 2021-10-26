@@ -1,9 +1,9 @@
+import json
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import hydra
-from transformers import AutoTokenizer
 
 from dataloader import load, user_define
 from metrics import loss
@@ -13,7 +13,8 @@ from trainer import TrainArgument, Trainer
 
 @hydra.main(config_name="config.yml")
 def main(cfg):
-    tokenizer = AutoTokenizer.from_pretrained(cfg.ETC.tokenizer_path)
+    with open(cfg.ETC.tokenizer_path, "r", encoding="utf-8") as f:
+        tokenizer = json.load(f)
 
     share_dict = dict(tokenizer=tokenizer, **cfg.DATASETS.share_dict)
     map_args = [
@@ -22,6 +23,7 @@ def main(cfg):
     ]
     train_dataset, eval_dataset = load(
         data_path=cfg.DATASETS.data_path,
+        # data_path=pd.read_csv(cfg.DATASETS.data_path).to_dict("list"),  # if data_path == "data_sample.csv"
         input_key=cfg.DATASETS.input_key,
         labels_key=cfg.DATASETS.labels_key,
         share_values=share_dict,
@@ -34,7 +36,7 @@ def main(cfg):
     args = TrainArgument(**cfg.TRAINARGS)
 
     with args.strategy.scope():
-        model = Transformer(vocab_size=tokenizer.vocab_size, **cfg.MODEL)
+        model = Transformer(vocab_size=len(tokenizer), **cfg.MODEL)
 
     trainer = Trainer(
         model,
