@@ -116,6 +116,5 @@ dmypy.json
 
 # custom gitignore
 model/
-checkpoint/
+ckpt/
 log/
-config.yml
