@@ -125,8 +125,6 @@ class Trainer:
             self.train_metrics = None
             self.eval_metrics = None
 
-    # TODO: model save, load 통일
-
     def set_checkpoint(self):
         self.ckpt = tf.train.Checkpoint(
             step=tf.Variable(1), optimizer=self.optimizer, net=self.model
