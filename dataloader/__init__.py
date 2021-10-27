@@ -1,7 +1,7 @@
+import os
 import random
 from functools import partial
 from multiprocessing import Pool
-from os.path import abspath
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -16,11 +16,13 @@ from dataloader.utils import (
     load_jsonl,
 )
 
+# TODO: 전처리 결과 저장시 변경 여부까지 확인하고 변경시에만 저장하게 하기.
+
 
 class DataLoader:
     def __init__(
         self,
-        data_path: Optional[str] = None,
+        data_path: Optional[Union[List[str], str]] = None,
         data: Optional[Union[List[Dict], Dict[str, List]]] = None,
     ) -> None:
         if data_path is None and data is None:
@@ -136,26 +138,40 @@ class DataLoader:
 
 
 def load(
-    data_path: str,
+    data_path: Union[List[str], str],
     input_key: Union[List[str], str],
     labels_key: Union[List[str], str],
     share_values: Optional[Dict[str, Any]] = None,
     map_args: Optional[List[Dict[str, Any]]] = None,
+    result_path: Optional[str] = None,
     shuffle_seed: Optional[int] = None,
     train_test_split: Optional[float] = None,
     dtype: Literal["dict", "tuple"] = "dict",
 ):
+    data_path = [data_path] if isinstance(data_path, str) else data_path
+    data_path = [os.path.abspath(p) for p in data_path]
+
+    if result_path is None:
+        result_path = os.path.join(os.path.dirname(data_path[0]), "processed.json")
+
     input_key = input_key if isinstance(input_key, str) else list(input_key)
     labels_key = labels_key if isinstance(labels_key, str) else list(labels_key)
 
-    data = DataLoader(abspath(data_path))
+    if os.path.isfile(result_path):
+        data = DataLoader(result_path)
+        print("load processed data from " + result_path)
 
-    if map_args is not None:
-        for args in map_args:
-            data.apply(share_values=share_values, **args)
+    else:
+        data = DataLoader(data_path)
+        if map_args is not None:
+            for args in map_args:
+                data.apply(share_values=share_values, **args)
 
-    if shuffle_seed is not None:
-        data.shuffle(seed=shuffle_seed)
+        if shuffle_seed is not None:
+            data.shuffle(seed=shuffle_seed)
+
+        data.save(result_path)
+        print("save processed data at " + result_path)
 
     if train_test_split is not None:
         train_data, eval_data = data.train_test_split(train_test_split)
