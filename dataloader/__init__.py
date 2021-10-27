@@ -124,6 +124,7 @@ class DataLoader:
                     else:
                         result += json_to_jsonl(r)
 
+        del self.data
         self.data = result
 
     def train_test_split(self, test_size: float = 0.2) -> Tuple[Dict, Dict]:
