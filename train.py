@@ -13,6 +13,10 @@ from trainer import TrainArgument, Trainer
 
 @hydra.main(config_name="config.yml")
 def main(cfg):
+    # step 1. set train arguments. This process should be done first.
+    train_args = TrainArgument(**cfg.TRAINARGS)
+
+    # step 2. load datasets.
     with open(cfg.ETC.tokenizer_path, "r", encoding="utf-8") as f:
         tokenizer = json.load(f)
 
@@ -33,22 +37,24 @@ def main(cfg):
         dtype=cfg.DATASETS.dtype,
     )
 
-    args = TrainArgument(**cfg.TRAINARGS)
-
-    with args.strategy.scope():
+    # step 3. set model.
+    with train_args.strategy.scope():
         model = Transformer(vocab_size=len(tokenizer), **cfg.MODEL)
 
+    # step 4. set trainer.
     trainer = Trainer(
         model,
-        args,
+        train_args,
         train_dataset,
         eval_dataset=eval_dataset,
         loss_function=loss,
         data_collator=user_define.data_collator,
     )
 
+    # step 5. train and evaluation.
     trainer.train()
 
+    # step 6. save model.
     model.save(cfg.ETC.output_dir)
 
 
