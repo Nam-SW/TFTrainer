@@ -4,8 +4,8 @@ from typing import Callable, Dict, List, Optional, Union
 import tensorflow as tf
 from tqdm import tqdm
 
-from optimizer import create_optimizer
-from trainarguments import TrainArgument
+from .optimizer import create_optimizer
+from .trainarguments import TrainArgument
 
 
 class Trainer:
