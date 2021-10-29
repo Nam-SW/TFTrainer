@@ -41,6 +41,7 @@ class TrainArgument:
 
         # optimizer
         self.learning_rate = kwargs.get("learning_rate", 5e-05)
+        self.min_lr_ratio = kwargs.get("min_lr_ratio", 0.0)
         self.warmup_steps = kwargs.get("warmup_steps", 0)
         self.adam_beta1 = kwargs.get("adam_beta1", 0.9)
         self.adam_beta2 = kwargs.get("adam_beta2", 0.98)

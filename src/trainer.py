@@ -82,9 +82,10 @@ class Trainer:
     ):
         if optimizer is None:
             self.optimizer, self.lr_scheduler = create_optimizer(
-                self.args.learning_rate,
-                num_training_steps,
-                self.args.warmup_steps,
+                init_lr=self.args.learning_rate,
+                num_train_steps=num_training_steps,
+                num_warmup_steps=self.args.warmup_steps,
+                min_lr_ratio=self.args.min_lr_ratio,
                 adam_beta1=self.args.adam_beta1,
                 adam_beta2=self.args.adam_beta2,
                 adam_epsilon=self.args.adam_epsilon,
