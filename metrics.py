@@ -2,8 +2,10 @@ import tensorflow as tf
 
 
 def loss(y, pred):
-    return tf.keras.losses.binary_crossentropy(y, pred)
+    pred = tf.nn.softmax(pred)
+    loss = tf.keras.losses.sparse_categorical_crossentropy(y, pred)
 
+    mask = tf.cast(tf.math.not_equal(y, 0), dtype=loss.dtype)
 
-def accuracy(y, pred):
-    return tf.keras.metrics.binary_accuracy(y, pred)
+    loss *= mask
+    return tf.reduce_sum(loss) / tf.reduce_sum(mask)

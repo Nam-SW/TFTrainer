@@ -1,22 +1,16 @@
 # model initial argument
 MODEL:
-    embedding_size: 128
-    hidden_size: 256
-    num_heads: 8
-    num_encoder_layers: 2
-    num_decoder_layers: 2
-    pe: 512
-    rate: 0.1
+    field: 123
 
 # training args
 TRAINARGS:
     use_gpu: true
 
     # hyper parameters
-    train_batch_size: 4
-    eval_batch_size: 4
+    train_batch_size: 32
+    eval_batch_size: 32
     epochs: 10
-    eval_epoch: 2
+    eval_epoch: -1
 
     # checkpoint
     checkpoint_dir: ckpt
@@ -24,8 +18,8 @@ TRAINARGS:
     save_total_limit: 10
 
     # tensorboard
-    logging_dir: log
-    logging_steps: 5
+    logging_dir: logs
+    logging_steps: 10
     logging_print: false
 
     # optimizer parameters
@@ -38,15 +32,14 @@ TRAINARGS:
 
 # datasets feild. Set the parameters for your custom dataset.
 DATASETS:
-    data_path: test_resource/data_sample.json  # dataset path. dataset must jsonl type.
-    # data_path: test_resource/data_sample.csv
+    data_path: dataset.json  # dataset path. dataset must jsonl type.
     share_dict:  # Resources shared by multiple processes.
-        seq_len: 48
+        resource1: 123
     map_args_list:  # Parameters required for the functions to be applied.
         -
-            batch_size: 10  # A unit that groups data into batches. Write 1 if processing one by one.
-            worker: 2  # Number of processes to use for multiprocessing.
-    train_test_split: 0.05  # size of test datasets. If you don't want to proceed with evaluation, enter null.
+            batch_size: 2000  # A unit that groups data into batches. Write 1 if processing one by one.
+            worker: 8  # Number of processes to use for multiprocessing.
+    train_test_split: 0.1  # size of test datasets. If you don't want to proceed with evaluation, enter null.
     shuffle_seed: 42  # Seed to shuffle the data. If you don't want to proceed with shuffle, enter null.
     input_key:  # keys of input dataset. List[str] or str.
         - input_ids
@@ -64,5 +57,4 @@ hydra:
 
 # etc feild and user custom feild
 ETC:
-    output_dir: model
-    tokenizer_path: test_resource/test_tokenizer.json
+    output_dir: model_save_path
