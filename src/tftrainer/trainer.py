@@ -17,6 +17,7 @@ class Trainer:
         loss_function: Callable,
         eval_dataset: Optional[tf.data.Dataset] = None,
         data_collator: Optional[Callable] = None,
+        log_function: Optional[Callable] = None,
         optimizers: Optional[List] = [None, None],
         metrics: Optional[Union[List[Callable], Callable]] = None,
     ):
@@ -30,6 +31,7 @@ class Trainer:
 
         self.do_eval = self.eval_dataset is not None
 
+        self.log_function = log_function
         self.optimizer, self.lr_scheduler = optimizers
         self.set_tensorboard(self.args.logging_dir)
 
@@ -119,6 +121,9 @@ class Trainer:
         with self.logger.as_default():
             for name, value in log_dict.items():
                 tf.summary.scalar(name, value, step=step)
+
+        if self.log_function is not None:
+            self.log_function(log_dict)
 
     @tf.function
     def step(self, x, y, training=False):
