@@ -163,7 +163,7 @@ class Trainer:
         dataset, step_per_epoch = self.get_dataset(
             self.train_dataset if dataset is None else dataset,
             batch_size=self.args.train_global_batch_size,
-            step_per_epoch=data_length,
+            data_length=data_length,
         )
         num_training_step = step_per_epoch * self.args.epochs
 
@@ -184,7 +184,7 @@ class Trainer:
                     for m in self.metrics:
                         m.reset_states()
 
-                for x, y in enumerate(dataset):
+                for x, y in dataset:
                     self.distributed_step(x, y, training=True)
 
                     if (
