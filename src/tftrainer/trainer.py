@@ -221,11 +221,13 @@ class Trainer:
                     self.ckpt.step.assign_add(1)
                     pbar.update(1)
 
-                if epoch % self.args.save_epoch == 0:
+                if (epoch + 1) % self.args.save_epoch == 0:
                     self.save_checkpoint()
 
-                if self.do_eval and epoch % self.args.eval_epoch == 0:
+                if self.do_eval and (epoch + 1) % self.args.eval_epoch == 0:
                     self.eval(view_progress=False)
+
+            pbar.close()
 
     def eval(
         self,
