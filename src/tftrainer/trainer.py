@@ -7,6 +7,8 @@ from tqdm import tqdm
 from .optimizer import create_optimizer
 from .trainarguments import TrainArgument
 
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
 
 class Trainer:
     def __init__(
@@ -20,6 +22,7 @@ class Trainer:
         log_function: Optional[Callable] = None,
         optimizers: Optional[List] = [None, None],
         metrics: Optional[Union[List[Callable], Callable]] = None,
+        callbacks: Optional[Union[tf.keras.callbacks.CallbackList, List]] = None,
     ):
         self.model = model
         self.args = args
@@ -36,6 +39,7 @@ class Trainer:
         self.set_tensorboard(self.args.logging_dir)
 
         self.set_metrics(metrics)
+        self.callbacks = callbacks
 
     def set_metrics(self, metrics: Optional[Union[List[Callable], Callable]] = None):
         self.loss = tf.keras.metrics.Mean(name="loss")
@@ -116,6 +120,24 @@ class Trainer:
 
         return self.args.strategy.experimental_distribute_dataset(dataset), length
 
+    def get_log(self, tag="", epoch=None, lr=None):
+        log_dict = dict()
+        if tag and not tag.startswith("/"):
+            tag = "/" + tag
+
+        if epoch:
+            log_dict["epoch" + tag] = epoch
+        if lr:
+            log_dict["lr" + tag] = lr
+
+        log_dict["loss" + tag] = self.loss.result()
+
+        if self.metrics_func is not None:
+            for m in self.metrics:
+                log_dict[m.name + tag] = m.result()
+
+        return log_dict
+
     def log(self, log_dict: Dict[str, float], step: Union[int, float]):
         self.logger.flush()
         with self.logger.as_default():
@@ -127,10 +149,7 @@ class Trainer:
 
     @tf.function
     def step(self, x, y, training=False):
-        if isinstance(x, dict):
-            pred = self.model(**x, training=training)
-        elif isinstance(x, tuple):
-            pred = self.model(x, training=training)
+        pred = self.model(x, training=training)
 
         loss = self.loss_function(y, pred)
         if self.metrics_func is not None:
@@ -173,6 +192,17 @@ class Trainer:
 
             self.set_checkpoint()
 
+            callbacks = tf.keras.callbacks.CallbackList(
+                self.callbacks,
+                add_history=True,
+                add_progbar=False,
+                model=self.model,
+                verbose=0,
+                epochs=self.args.epochs,
+                steps=step_per_epoch,
+            )
+            callbacks.on_train_begin()
+
             pbar = tqdm(total=num_training_step)
             pbar.update(self.ckpt.step.numpy())
 
@@ -184,29 +214,24 @@ class Trainer:
                     for m in self.metrics:
                         m.reset_states()
 
+                callbacks.on_epoch_begin(epoch)
+
                 for x, y in dataset:
+                    callbacks.on_train_batch_begin(self.ckpt.step.numpy())
                     self.distributed_step(x, y, training=True)
+
+                    log_dict = self.get_log(
+                        tag="train",
+                        epoch=self.ckpt.step.numpy() / step_per_epoch,
+                        lr=self.lr_scheduler(self.ckpt.step).numpy()
+                        if self.lr_scheduler is not None
+                        else None,
+                    )
 
                     if (
                         self.logging
                         and self.ckpt.step.numpy() % self.args.logging_steps == 0
                     ):
-                        log_dict = dict()
-                        tag = "/train"
-
-                        log_dict["epoch" + tag] = (
-                            self.ckpt.step.numpy() / step_per_epoch
-                        )
-                        if self.lr_scheduler is not None:
-                            lr = self.lr_scheduler(self.ckpt.step).numpy()
-                            log_dict["lr" + tag] = lr
-
-                        log_dict["loss" + tag] = self.loss.result()
-
-                        if self.metrics_func is not None:
-                            for m in self.metrics:
-                                log_dict[m.name + tag] = m.result()
-
                         self.log(log_dict, self.ckpt.step.numpy())
 
                         if self.args.logging_print:
@@ -218,8 +243,11 @@ class Trainer:
                             )
                             print(str_log_dict)
 
+                    callbacks.on_train_batch_end(self.ckpt.step.numpy(), log_dict)
                     self.ckpt.step.assign_add(1)
                     pbar.update(1)
+
+                callbacks.on_epoch_end(epoch, log_dict)
 
                 if (epoch + 1) % self.args.save_epoch == 0:
                     self.save_checkpoint()
@@ -228,6 +256,7 @@ class Trainer:
                     self.eval(view_progress=False)
 
             pbar.close()
+            callbacks.on_train_end(logs=log_dict)
 
     def eval(
         self,
@@ -256,12 +285,7 @@ class Trainer:
                 if view_progress:
                     pbar.update(1)
 
-        tag = "eval/"
-        log_dict = {tag + "loss": self.loss.result()}
-        if self.metrics_func is not None:
-            for m in self.metrics:
-                log_dict[tag + m.name] = m.result()
-
+        log_dict = self.get_log(tag="eval")
         if self.logging:
             self.log(log_dict, self.ckpt.step.numpy())
 
