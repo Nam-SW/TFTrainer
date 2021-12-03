@@ -7,6 +7,8 @@ from tqdm import tqdm
 from .optimizer import create_optimizer
 from .trainarguments import TrainArgument
 
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
 
 class Trainer:
     def __init__(
@@ -20,6 +22,7 @@ class Trainer:
         log_function: Optional[Callable] = None,
         optimizers: Optional[List] = [None, None],
         metrics: Optional[Union[List[Callable], Callable]] = None,
+        callbacks: Optional[Union[tf.keras.callbacks.CallbackList, List]] = None,
     ):
         self.model = model
         self.args = args
@@ -36,6 +39,7 @@ class Trainer:
         self.set_tensorboard(self.args.logging_dir)
 
         self.set_metrics(metrics)
+        self.callbacks = callbacks
 
     def set_metrics(self, metrics: Optional[Union[List[Callable], Callable]] = None):
         self.loss = tf.keras.metrics.Mean(name="loss")
@@ -174,7 +178,6 @@ class Trainer:
         self,
         dataset: Optional[tf.data.Dataset] = None,
         data_length: Optional[int] = None,
-        callbacks=None,
     ):
         dataset, step_per_epoch = self.get_dataset(
             self.train_dataset if dataset is None else dataset,
@@ -190,7 +193,7 @@ class Trainer:
             self.set_checkpoint()
 
             callbacks = tf.keras.callbacks.CallbackList(
-                callbacks,
+                self.callbacks,
                 add_history=True,
                 add_progbar=False,
                 model=self.model,
@@ -240,8 +243,7 @@ class Trainer:
                             )
                             print(str_log_dict)
 
-                        callbacks.on_train_batch_end(self.ckpt.step.numpy(), log_dict)
-
+                    callbacks.on_train_batch_end(self.ckpt.step.numpy(), log_dict)
                     self.ckpt.step.assign_add(1)
                     pbar.update(1)
 
