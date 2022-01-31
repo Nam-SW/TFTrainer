@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="TFTrainer",
-    version="0.2.0",
+    version="0.2.2",
     description="tensorflow utility trainer.",
     author="Nam-SW",
     author_email="nsw0311@gmail.com",

@@ -27,7 +27,11 @@ class Trainer:
         self.model = model
         self.args = args
         self.data_collator = data_collator
-        self.loss_function = loss_function
+        self.loss_function = (
+            loss_function
+            if isinstance(callable, loss_function)
+            else getattr(tf.keras.losses, loss_function)
+        )
 
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
@@ -47,6 +51,9 @@ class Trainer:
         metrics = [] if metrics is None else metrics
         metrics = [metrics] if hasattr(metrics, "__call__") else metrics
         for i in range(len(metrics)):
+            if isinstance(str, metrics[i]):
+                metrics[i] = getattr(tf.keras.metrics, metrics[i])
+
             if not hasattr(metrics[i], "__name__"):
                 metrics[i].__name__ = metrics[i].__class__.__name__
 
@@ -262,6 +269,7 @@ class Trainer:
         self,
         dataset: Optional[tf.data.Dataset] = None,
         data_length: Optional[int] = None,
+        callbacks: Optional[callable] = None,
         view_progress: Optional[bool] = True,
     ):
         dataset, step_per_epoch = self.get_dataset(
@@ -274,13 +282,28 @@ class Trainer:
             pbar = tqdm(total=step_per_epoch)
 
         with self.args.strategy.scope():
+            callbacks = tf.keras.callbacks.CallbackList(
+                callbacks,
+                add_history=True,
+                add_progbar=False,
+                model=self.model,
+                verbose=0,
+                epochs=self.args.epochs,
+                steps=step_per_epoch,
+            )
+            callbacks.on_test_begin()
+
             self.loss.reset_states()
             if self.metrics_func is not None:
                 for m in self.metrics:
                     m.reset_states()
 
-            for (x, y) in dataset:
+            for i, (x, y) in enumerate(dataset):
+                callbacks.on_test_batch_begin(i)
                 self.distributed_step(x, y, training=False)
+                callbacks.on_test_batch_end(
+                    self.ckpt.step.numpy(), self.get_log(tag="eval")
+                )
 
                 if view_progress:
                     pbar.update(1)
@@ -288,5 +311,7 @@ class Trainer:
         log_dict = self.get_log(tag="eval")
         if self.logging:
             self.log(log_dict, self.ckpt.step.numpy())
+
+        callbacks.on_test_end(logs=log_dict)
 
         return log_dict
